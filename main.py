@@ -3,15 +3,32 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
+# ===== KEEP ALIVE =====
+from flask import Flask
+from threading import Thread
+
+web = Flask('')
+
+@web.route('/')
+def home():
+    return "Bot Running 24/7"
+
+def run():
+    web.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    Thread(target=run).start()
+
 # ===== CONFIG =====
 TOKEN = "8502098422:AAHFtNfJEFAirvzvBrVOCoLqPKvmHHicDQ8"
 ADMIN_ID = 6766447756
 CHANNEL = "@ST_WHATAPPS_CHEKAR"
 SUPPORT = "@SHANTO_VAI_OWNER_TX"
+LOGO_URL = "https://i.imgur.com/Z6XbK6R.png"
 
 DATA_FILE = "data.json"
 
-# ===== LOAD/SAVE =====
+# ===== DATA =====
 def load_data():
     try:
         with open(DATA_FILE, "r") as f:
@@ -25,15 +42,7 @@ def save_data(data):
 
 data = load_data()
 
-# ===== JOIN CHECK =====
-async def check_join(user_id, bot):
-    try:
-        member = await bot.get_chat_member(CHANNEL, user_id)
-        return member.status in ["member", "administrator", "creator"]
-    except:
-        return False
-
-# ===== SAVE USER =====
+# ===== USER =====
 def save_user(user_id):
     data["users"][str(user_id)] = {
         "last_active": str(datetime.now()),
@@ -41,9 +50,16 @@ def save_user(user_id):
     }
     save_data(data)
 
-# ===== BAN CHECK =====
 def is_banned(user_id):
     return data["users"].get(str(user_id), {}).get("banned", False)
+
+# ===== JOIN CHECK =====
+async def check_join(user_id, bot):
+    try:
+        member = await bot.get_chat_member(CHANNEL, user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except:
+        return False
 
 # ===== FORMAT =====
 def format_number(num):
@@ -78,13 +94,13 @@ def log_history(user_id, count):
 # ===== MENU =====
 def main_menu(is_admin=False):
     menu = [
-        ["🟢 📥 Number Check"],
-        ["🔵 📊 My History"],
-        ["🟣 🆘 Support"]
+        [" Number Check"],
+        [" My History"],
+        [" Support"]
     ]
     if is_admin:
-        menu.append(["🔴 📢 Broadcast"])
-        menu.append(["👑 📊 Admin Panel"])
+        menu.append([" Broadcast"])
+        menu.append([" Admin Panel"])
     return ReplyKeyboardMarkup(menu, resize_keyboard=True)
 
 # ===== START =====
@@ -92,123 +108,104 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if not await check_join(user_id, context.bot):
-        keyboard = [[InlineKeyboardButton("🔔 Join Channel", url=f"https://t.me/{CHANNEL[1:]}")]]
-        await update.message.reply_text("❗ আগে channel join করো", reply_markup=InlineKeyboardMarkup(keyboard))
+        keyboard = [[InlineKeyboardButton(" Join Channel", url=f"https://t.me/{CHANNEL[1:]}")]]
+        await update.message.reply_text("  channel join ", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     save_user(user_id)
 
-    await update.message.reply_text("🤖 Welcome!", reply_markup=main_menu(user_id == ADMIN_ID))
+    # LOGO AUTO SEND
+    await update.message.reply_photo(
+        photo=LOGO_URL,
+        caption=" *ST WHATAPPS CHEKAR BOT*\n\n Fast & Clean Checker\n Track History",
+        parse_mode="Markdown",
+        reply_markup=main_menu(user_id == ADMIN_ID)
+    )
 
 # ===== TEXT =====
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    text = update.message.text
 
     if not await check_join(user_id, context.bot):
-        await update.message.reply_text("❗ আগে channel join করো")
+        await update.message.reply_text("  channel join ")
         return
 
     if is_banned(user_id):
-        await update.message.reply_text("🚫 তুমি banned")
+        await update.message.reply_text("  banned")
         return
 
     save_user(user_id)
 
-    text = update.message.text
-
-    if text == "🟢 📥 Number Check":
-        await update.message.reply_text("📩 নাম্বার পাঠাও")
+    if text == " Number Check":
+        await update.message.reply_text("   (line by line)")
         return
 
-    if text == "🔵 📊 My History":
+    if text == " My History":
         records = [r for r in data["history"] if r["user_id"] == user_id]
         total = sum(r["count"] for r in records)
 
-        msg = f"📊 Total Checked: {total}\n\n"
+        msg = f" *Your History*\n\nTotal: {total}\n\n"
         for r in records[-5:]:
-            msg += f"{r['count']} → {r['time'][:16]}\n"
+            msg += f"{r['count']}  {r['time'][:16]}\n"
 
-        await update.message.reply_text(msg)
+        await update.message.reply_text(msg, parse_mode="Markdown")
         return
 
-    if text == "🟣 🆘 Support":
-        await update.message.reply_text(f"📩 {SUPPORT}")
+    if text == " Support":
+        await update.message.reply_text(f" {SUPPORT}")
         return
 
-    if text == "🔴 📢 Broadcast" and user_id == ADMIN_ID:
+    # ===== BROADCAST =====
+    if text == " Broadcast" and user_id == ADMIN_ID:
         context.user_data["broadcast"] = True
-        await update.message.reply_text("📩 message পাঠাও")
+        await update.message.reply_text(" message ")
         return
 
-    if text == "👑 📊 Admin Panel" and user_id == ADMIN_ID:
-        total_users = len(data["users"])
-
-        active = 0
-        for u in data["users"].values():
-            last = datetime.fromisoformat(u["last_active"])
-            if datetime.now() - last < timedelta(hours=24):
-                active += 1
-
-        msg = f"👥 Users: {total_users}\n🔥 Active: {active}\n📞 Checked: {data['total']}"
-        await update.message.reply_text(msg)
-        return
-
-    # broadcast
     if context.user_data.get("broadcast"):
         context.user_data["broadcast"] = False
-
         for uid in data["users"]:
             try:
                 await context.bot.send_message(int(uid), text)
             except:
                 pass
-
-        await update.message.reply_text("✅ Done")
+        await update.message.reply_text(" Broadcast Done")
         return
 
-    # numbers
+    # ===== PROCESS =====
     numbers = text.split("\n")
     links, count = generate_links(numbers)
-
     log_history(user_id, count)
 
     result = "\n".join(links)
-
-    keyboard = [[InlineKeyboardButton("📋 Copy All", callback_data="copy")]]
     context.user_data["result"] = result
 
-    await update.message.reply_text(result[:4000], reply_markup=InlineKeyboardMarkup(keyboard))
+    keyboard = [[InlineKeyboardButton(" Copy All Results", callback_data="copy")]]
+
+    await update.message.reply_text(
+        f" *Checked {count} Numbers*\n\n{result[:3500]}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 # ===== COPY =====
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.message.reply_text(context.user_data.get("result", ""))
 
-# ===== BAN =====
-async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    uid = context.args[0]
-    data["users"].setdefault(uid, {})["banned"] = True
-    save_data(data)
-    await update.message.reply_text("🚫 Banned")
+    result = context.user_data.get("result", "")
 
-async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    uid = context.args[0]
-    data["users"].setdefault(uid, {})["banned"] = False
-    save_data(data)
-    await update.message.reply_text("✅ Unbanned")
+    if result:
+        for i in range(0, len(result), 4000):
+            await query.message.reply_text(result[i:i+4000])
 
 # ===== RUN =====
+keep_alive()
+
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT, handle_text))
 app.add_handler(CallbackQueryHandler(button))
-app.add_handler(CommandHandler("ban", ban))
-app.add_handler(CommandHandler("unban", unban))
 
 app.run_polling()
